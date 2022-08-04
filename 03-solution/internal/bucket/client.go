@@ -55,7 +55,7 @@ func NewClient(serverAddr, accessKeyID, secretAccessKey string) *Client {
 	if err != nil {
 		log.Fatalln("Error initializing minio client -\t", err)
 	}
-	return &Client{client: minioClient, ticker: time.NewTicker(time.Minute), UpdateCh: make(chan struct{})}
+	return &Client{client: minioClient, ticker: time.NewTicker(5 * time.Minute), UpdateCh: make(chan struct{})}
 }
 
 func (bc *Client) SetBucket(bucket string) error {
@@ -162,22 +162,22 @@ func (bc *Client) GetUserFromObject(fo FileObject) *model.User {
 	return user
 }
 
-func combineUsers(user1, user2 *model.User) *model.User {
+func combineUsers(userWas, userNew *model.User) *model.User {
 	switch {
-	case user1 == nil && user2 == nil:
+	case userWas == nil && userNew == nil:
 		return &model.User{}
-	case user1 == nil:
-		return user2
-	case user2 == nil:
-		return user1
+	case userWas == nil:
+		return userNew
+	case userNew == nil:
+		return userWas
 	}
 
 	result := &model.User{
-		ID:          getNonEmptyS(user1.ID, user2.ID),
-		Firstname:   getNonEmptyS(user1.Firstname, user2.Firstname),
-		Lastname:    getNonEmptyS(user1.Lastname, user2.Lastname),
-		Birthday:    getNonEmptyT(user1.Birthday, user2.Birthday),
-		PicturePath: getNonEmptyS(user1.PicturePath, user2.PicturePath),
+		ID:          getNonEmptyS(userNew.ID, userWas.ID),
+		Firstname:   getNonEmptyS(userNew.Firstname, userWas.Firstname),
+		Lastname:    getNonEmptyS(userNew.Lastname, userWas.Lastname),
+		Birthday:    getNonEmptyT(userNew.Birthday, userWas.Birthday),
+		PicturePath: getNonEmptyS(userNew.PicturePath, userWas.PicturePath),
 	}
 	return result
 }
@@ -284,16 +284,33 @@ func (bc *Client) SetBucketListener(ctx context.Context, bucketName string, forU
 }
 
 func (bc *Client) catchBucketNotifications(ctx context.Context, bucketName string, forUsers model.Users) {
-	for notificationInfo := range bc.client.ListenBucketNotification(ctx, bucketName, "", "",
+	notificationChannel := bc.client.ListenBucketNotification(ctx, bucketName, "", "",
 		[]string{
 			"s3:ObjectCreated:*",
-			"s3:ObjectRemoved:*"}) {
-		select {
-		case <-bc.UpdateCh:
-			log.Println("Force bucket data update:\t", bucketName)
-		case <-bc.ticker.C:
-		}
+			"s3:ObjectRemoved:*"})
+	changedUsersData := make(model.Users)
 
+	go func() {
+		for {
+			select {
+			case <-bc.UpdateCh:
+				log.Println("Force bucket data update:\t", bucketName)
+				err := bc.saveChanges(forUsers, changedUsersData)
+				if err != nil {
+					log.Println(err)
+				}
+			case <-bc.ticker.C:
+				err := bc.saveChanges(forUsers, changedUsersData)
+				if err != nil {
+					log.Println(err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	for notificationInfo := range notificationChannel {
 		if notificationInfo.Err != nil {
 			continue
 		}
@@ -301,20 +318,39 @@ func (bc *Client) catchBucketNotifications(ctx context.Context, bucketName strin
 		for _, record := range notificationInfo.Records {
 			objectName := record.S3.Object.Key
 			fo := NewFileObject(objectName)
-			if strings.Contains(strings.ToLower(record.EventName), "delete") {
+			_, ok := changedUsersData[fo.Name]
+			if !ok {
+				changedUsersData[fo.Name] = combineUsers(changedUsersData[fo.Name], forUsers[fo.Name])
+			}
+			if strings.Contains(record.EventName, "s3:ObjectRemoved") {
+				if changedUsersData[fo.Name] == nil {
+					continue
+				}
 				if strings.ToLower(fo.Extension) != ".csv" {
-					forUsers[fo.Name].PicturePath = ""
+					changedUsersData[fo.Name].PicturePath = ""
 				} else {
-					delete(forUsers, fo.Name)
+					changedUsersData[fo.Name] = nil
 				}
 				continue
 			}
 			changedUser := bc.GetUserFromObject(fo)
-			forUsers[fo.Name] = combineUsers(forUsers[fo.Name], changedUser)
-		}
-		err := bc.StoreUsers(forUsers, LocalPathToResult)
-		if err != nil {
-			log.Println("Error storing users after changes made in the bucket -", bucketName)
+			changedUsersData[fo.Name] = combineUsers(changedUsersData[fo.Name], changedUser)
 		}
 	}
+}
+
+func (bc *Client) saveChanges(dataMap, changedUsersData model.Users) error {
+	for key := range changedUsersData {
+		if changedUsersData[key] == nil {
+			delete(dataMap, key)
+			continue
+		}
+		dataMap[key] = changedUsersData[key]
+	}
+	err := bc.StoreUsers(dataMap, LocalPathToResult)
+	if err != nil {
+		return fmt.Errorf("store users after changes made in the bucket\t%w", err)
+	}
+	changedUsersData = make(model.Users)
+	return nil
 }

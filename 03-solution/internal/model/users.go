@@ -27,6 +27,10 @@ type UserFilter struct {
 }
 
 func (uss Users) CalculateAverage() AverageData {
+	if len(uss) == 0 {
+		return AverageData{Age: 0.0}
+	}
+
 	var sumAge uint64
 	for _, usr := range uss {
 		sumAge += usr.GetAge()
