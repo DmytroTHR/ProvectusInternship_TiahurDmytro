@@ -23,7 +23,8 @@ func main() {
 
 	app := new(App)
 	app.config = NewConfig()
-	app.bucket = bucket.NewClient("localhost:9000", app.config.AccessKey, app.config.SecretKey)
+	app.bucket = bucket.NewClient(app.config.BucketServiceAddr, app.config.AccessKey,
+		app.config.SecretKey, app.config.RefreshPeriodMin)
 	err := app.bucket.SetBucket(bucket.BucketForData)
 	if err != nil {
 		log.Println(err)
@@ -47,7 +48,7 @@ func main() {
 
 	userHandler := httpserver.NewUserHandler(users, app.bucket)
 	router := httpserver.NewRouter(userHandler)
-	app.server = httpserver.NewServer(":8080", router)
+	app.server = httpserver.NewServer(app.config.HTTPPort, router)
 	defer func() {
 		ctx, cancel := context.WithTimeout(exitCtx, 5*time.Second)
 		defer cancel()

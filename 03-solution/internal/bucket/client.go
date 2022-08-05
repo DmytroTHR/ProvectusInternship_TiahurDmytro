@@ -48,14 +48,14 @@ func NewFileObject(fileName string) FileObject {
 	}
 }
 
-func NewClient(serverAddr, accessKeyID, secretAccessKey string) *Client {
+func NewClient(serverAddr, accessKeyID, secretAccessKey string, refreshMin time.Duration) *Client {
 	minioClient, err := minio.New(serverAddr, &minio.Options{
 		Creds: credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 	})
 	if err != nil {
 		log.Fatalln("Error initializing minio client -\t", err)
 	}
-	return &Client{client: minioClient, ticker: time.NewTicker(5 * time.Minute), UpdateCh: make(chan struct{})}
+	return &Client{client: minioClient, ticker: time.NewTicker(refreshMin), UpdateCh: make(chan struct{})}
 }
 
 func (bc *Client) SetBucket(bucket string) error {
