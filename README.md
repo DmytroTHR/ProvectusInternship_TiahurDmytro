@@ -23,7 +23,7 @@ If you'd like to change an HTTP port, you should also change it in ```ports``` s
 ```
 
 #### Project source code
-[03-solution]()
+[03-solution](https://github.com/DmytroTHR/ProvectusInternship_TiahurDmytro/tree/master/03-solution)
 
 ### Result will be represented as a response to:
 
