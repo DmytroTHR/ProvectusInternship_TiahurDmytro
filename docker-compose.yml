@@ -42,6 +42,8 @@ services:
     container_name: user-aggregator-dt
     image: dmytrothr/user-aggregator
     restart: on-failure
+    volumes:
+      - ./03-solution/processed_data:/processed_data
     environment:
       HTTP_SERVER_PORT: ':8080'
       MINIO_ROOT_PASSWORD: 'password'

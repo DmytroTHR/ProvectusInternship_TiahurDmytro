@@ -41,7 +41,7 @@ func (uh *UserHandler) postUsersData(w http.ResponseWriter, r *http.Request) {
 	uh.bucketClient.UpdateCh <- struct{}{}
 	output, _ := json.MarshalIndent(&struct {
 		Message string
-	}{Message: "Data was is being updated, you can reGET it."}, "", "\t")
+	}{Message: "Data is being updated, you can reGET it."}, "", "\t")
 	w.Write(output)
 }
 
